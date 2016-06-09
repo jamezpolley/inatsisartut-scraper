@@ -3,6 +3,7 @@ import itertools as it
 from operator import itemgetter
 import sqlite3
 import sys
+from urllib.parse import parse_qs, urljoin, urlparse
 
 import lxml.html
 from splinter import Browser
@@ -32,7 +33,7 @@ session_dates_to_terms = {'-'.join(k.split('-')[::-1]): v for k, v in {
     '2016-05-23': '12',}.items()}
 
 
-def extact_name(name):
+def extract_name(name):
     name, = name
     new_name, *_ = name.partition(',')
     if name != new_name:
@@ -41,18 +42,24 @@ def extact_name(name):
     return new_name
 
 
+def extract_photo(photo):
+    photo, = photo
+    photo, = parse_qs(urlparse(photo).query)['image']
+    if 'INAT-dukke-lys.jpg' in photo:
+        return None
+    return urljoin(base_url, photo)
+
+
 def parse_html(html):
-    doc = lxml.html.document_fromstring(html)
-    doc.make_links_absolute(base_url)
-    return doc.xpath('body')[0]
+    return lxml.html.document_fromstring(html).xpath('body')[0]
 
 
 def scrape_row(row, term):
     html = parse_html(row.html)
-    return (extact_name(html.xpath('div/strong/text()')),
+    return (extract_name(html.xpath('div/strong/text()')),
             (html.xpath('//a[starts-with(@href, "mailto")]/@href')[0]
              .replace('mailto:', '') or None),
-            html.xpath('img/@src')[0],
+            extract_photo(html.xpath('img/@src')),
             term,
             html.xpath('div/text()[2]')[0].replace('_', ' '))
 
