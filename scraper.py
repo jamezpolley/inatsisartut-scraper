@@ -2,6 +2,7 @@
 import itertools as it
 from operator import itemgetter
 import sqlite3
+import sys
 
 import lxml.html
 from splinter import Browser
@@ -31,6 +32,15 @@ session_dates_to_terms = {'-'.join(k.split('-')[::-1]): v for k, v in {
     '2016-05-23': '12',}.items()}
 
 
+def extact_name(name):
+    name, = name
+    new_name, *_ = name.partition(',')
+    if name != new_name:
+        print('=> {!r} converted to {!r}'.format(name, new_name),
+              file=sys.stderr)
+    return new_name
+
+
 def parse_html(html):
     doc = lxml.html.document_fromstring(html)
     doc.make_links_absolute(base_url)
@@ -39,13 +49,12 @@ def parse_html(html):
 
 def scrape_row(row, term):
     html = parse_html(row.html)
-    return tuple(it.chain(
-        html.xpath('div/strong/text()'),
-        [html.xpath('//a[starts-with(@href, "mailto")]/@href')[0]
-         .replace('mailto:', '') or None],
-        html.xpath('img/@src'),
-        [term],
-        html.xpath('div/text()[2]')))
+    return (extact_name(html.xpath('div/strong/text()')),
+            (html.xpath('//a[starts-with(@href, "mailto")]/@href')[0]
+             .replace('mailto:', '') or None),
+            html.xpath('img/@src')[0],
+            term,
+            html.xpath('div/text()[2]')[0].replace('_', ' '))
 
 
 def gather_people(session):
