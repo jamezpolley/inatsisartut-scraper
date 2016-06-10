@@ -1,12 +1,11 @@
 
 import datetime as dt
-import itertools as it
 from operator import itemgetter
 import re
 import sqlite3
 from urllib.parse import parse_qs, urljoin, urlparse
 
-import lxml.html
+from lxml.html import document_fromstring as parse_html
 from splinter import Browser
 
 base_url = 'http://www.ina.gl/inatsisartuthome/sammensaetning-af-inatsisartut.aspx'
@@ -66,19 +65,17 @@ def extract_photo(photo):
     return urljoin(base_url, photo)
 
 
-def parse_html(html):
-    return lxml.html.document_fromstring(html).xpath('body')[0]
-
-
-def scrape_row(row, term, chamber):
-    html = parse_html(row.html)
-    return (extract_name(html.xpath('div/strong/text()')),
-            (html.xpath('//a[starts-with(@href, "mailto")]/@href')[0]
-             .replace('mailto:', '') or None),
-            extract_photo(html.xpath('img/@src')),
-            term,
-            *extract_group(html.xpath('div/text()[2]')),
-            chamber)
+def scrape_rows(doc, term, chamber):
+    for row in doc.xpath(
+            '//div[@id="cvtabbarmain"]/div[not(contains(@class, "ui-tabs-hide"))]'
+            '//tr[starts-with(@id, "rowDetail")]/td/div[1]'):
+        yield (extract_name(row.xpath('div/strong/text()')),
+               (row.xpath('//a[starts-with(@href, "mailto")]/@href')[0]
+                   .replace('mailto:', '') or None),
+               extract_photo(row.xpath('img/@src')),
+               term,
+               *extract_group(row.xpath('div/text()[2]')),
+               chamber)
 
 
 def gather_people(session):
@@ -90,16 +87,19 @@ def gather_people(session):
         session.find_option_by_value(option).click()
         while 'display: none' not in session.find_by_id('loader').outer_html:
             ...
-        rows = session.find_by_xpath('//div[@id="cvtabbarmain"]/div[last()-1]'
-                                     '//tr[starts-with(@id, "rowDetail")]/td/div[1]')
-        yield tuple(scrape_row(r, session_dates_to_terms[option], date_to_chamber(option))
-                    for r in rows)
+        term, chamber = session_dates_to_terms[option], date_to_chamber(option)
+        yield from scrape_rows(parse_html(session.html), term, chamber)
+
+        on_leave = session.find_by_xpath('//a[text() = "Sulinngiffeqarpoq"]')
+        if on_leave:
+            on_leave.click()
+            yield from scrape_rows(parse_html(session.html), term, chamber)
 
 
 def main():
     with Browser('phantomjs', load_images=False) as browser:
         browser.visit(base_url)
-        people = tuple(it.chain.from_iterable(gather_people(browser)))
+        people = tuple(gather_people(browser))
     with sqlite3.connect('data.sqlite') as c:
         c.execute('''\
 CREATE TABLE IF NOT EXISTS data
