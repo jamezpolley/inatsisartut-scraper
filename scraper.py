@@ -69,12 +69,12 @@ def scrape_rows(doc, term, chamber):
     for row in doc.xpath(
             '//div[@id="cvtabbarmain"]/div[not(contains(@class, "ui-tabs-hide"))]'
             '//tr[starts-with(@id, "rowDetail")]/td/div[1]'):
-        yield (extract_name(row.xpath('div/strong/text()')),
-               (row.xpath('//a[starts-with(@href, "mailto")]/@href')[0]
+        yield (extract_name(row.xpath('./div/strong/text()')),
+               (row.xpath('.//a[starts-with(@href, "mailto")]/@href')[0]
                    .replace('mailto:', '') or None),
-               extract_photo(row.xpath('img/@src')),
+               extract_photo(row.xpath('./img/@src')),
                term,
-               *extract_group(row.xpath('div/text()[2]')),
+               *extract_group(row.xpath('./div/text()[2]')),
                chamber)
 
 
