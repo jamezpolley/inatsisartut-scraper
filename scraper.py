@@ -1,8 +1,9 @@
 
+import datetime as dt
 import itertools as it
 from operator import itemgetter
+import re
 import sqlite3
-import sys
 from urllib.parse import parse_qs, urljoin, urlparse
 
 import lxml.html
@@ -32,14 +33,29 @@ session_dates_to_terms = {'-'.join(k.split('-')[::-1]): v for k, v in {
     '2015-11-03': '12',
     '2016-05-23': '12',}.items()}
 
+term_end_dates = {s: e and (dt.datetime.strptime(e, '%Y-%m-%d').date() -
+                            dt.timedelta(days=1)).isoformat()
+                  for s, e in zip(sorted(election_dates_to_terms),
+                                  sorted(election_dates_to_terms)[1:] + [None])}
+
+
+def date_to_chamber(date, _date_match=re.compile(r'\d{4}')):
+    # http://en.inatsisartut.gl/media/1595595/om_inatsisartut_vers_2014.01_en_web.pdf, p. 7
+    year = int(_date_match.search(date).group())
+    return 'Landsting' if year < 2009 else 'Inatsisartut'
+
 
 def extract_name(name):
     name, = name
     new_name, *_ = name.partition(',')
     if name != new_name:
-        print('=> {!r} converted to {!r}'.format(name, new_name),
-              file=sys.stderr)
+        print('=> {!r} converted to {!r}'.format(name, new_name))
     return new_name
+
+
+def extract_group(group):
+    group, = group
+    return group.replace('_', ' '), group.replace(' ', '_').lower()
 
 
 def extract_photo(photo):
@@ -54,14 +70,15 @@ def parse_html(html):
     return lxml.html.document_fromstring(html).xpath('body')[0]
 
 
-def scrape_row(row, term):
+def scrape_row(row, term, chamber):
     html = parse_html(row.html)
     return (extract_name(html.xpath('div/strong/text()')),
             (html.xpath('//a[starts-with(@href, "mailto")]/@href')[0]
              .replace('mailto:', '') or None),
             extract_photo(html.xpath('img/@src')),
             term,
-            html.xpath('div/text()[2]')[0].replace('_', ' '))
+            *extract_group(html.xpath('div/text()[2]')),
+            chamber)
 
 
 def gather_people(session):
@@ -73,9 +90,10 @@ def gather_people(session):
         session.find_option_by_value(option).click()
         while 'display: none' not in session.find_by_id('loader').outer_html:
             ...
-        yield tuple(scrape_row(r, session_dates_to_terms[option])
-                    for r in session.find_by_xpath('//div[@id="cvtabbarmain"]/div[last()-1]'
-                                                   '//tr[starts-with(@id, "rowDetail")]/td/div[1]'))
+        rows = session.find_by_xpath('//div[@id="cvtabbarmain"]/div[last()-1]'
+                                     '//tr[starts-with(@id, "rowDetail")]/td/div[1]')
+        yield tuple(scrape_row(r, session_dates_to_terms[option], date_to_chamber(option))
+                    for r in rows)
 
 
 def main():
@@ -85,16 +103,18 @@ def main():
     with sqlite3.connect('data.sqlite') as c:
         c.execute('''\
 CREATE TABLE IF NOT EXISTS data
-(name, email, image, term, 'group', UNIQUE (name, term, 'group'))''')
+(name, email, image, term, 'group', group_id, chamber,
+ UNIQUE (name, term, 'group'))''')
         c.executemany('''\
-INSERT OR REPLACE INTO data VALUES (?, ?, ?, ?, ?)''', people)
+INSERT OR REPLACE INTO data VALUES (?, ?, ?, ?, ?, ?, ?)''', people)
         c.execute('''\
 CREATE TABLE IF NOT EXISTS terms
 (id, name, start_date, end_date, UNIQUE (id))''')
         c.executemany('''\
 INSERT OR REPLACE INTO terms VALUES (?, ?, ?, ?)''',
-            ((v, v, k, None) for k, v in
-             sorted(election_dates_to_terms.items(), key=itemgetter(1))))
+            ((v, date_to_chamber(k) + ' ' + v, k, term_end_dates[k])
+             for k, v in sorted(election_dates_to_terms.items(),
+                                key=itemgetter(1))))
 
 if __name__ == '__main__':
     main()
