@@ -3,7 +3,7 @@ import datetime as dt
 from operator import itemgetter
 import re
 import sqlite3
-from urllib.parse import parse_qs, urljoin, urlparse
+from urllib.parse import parse_qs, urljoin, urlparse, quote as urlquote
 
 from lxml.html import document_fromstring as parse_html
 from splinter import Browser
@@ -62,7 +62,7 @@ def extract_photo(photo):
     photo, = parse_qs(urlparse(photo).query)['image']
     if 'INAT-dukke-lys.jpg' in photo:
         return None
-    return urljoin(base_url, photo)
+    return urljoin(base_url, urlquote(photo))
 
 
 def scrape_rows(doc, term, chamber):
