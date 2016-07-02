@@ -5,7 +5,6 @@ import re
 import sqlite3
 from urllib.parse import parse_qs, urljoin, urlparse, quote as urlquote
 
-from lxml.html import document_fromstring as parse_html
 from splinter import Browser
 
 base_url = 'http://www.ina.gl/inatsisartuthome/sammensaetning-af-inatsisartut.aspx'
@@ -45,42 +44,44 @@ def date_to_chamber(date, _date_match=re.compile(r'\d{4}')):
 
 
 def extract_name(name):
-    name, = name
+    # element.text doesn't work on hidden elements apparently
+    name = name._element.get_attribute('textContent')
     new_name, *_ = name.partition(',')
     if name != new_name:
-        print('=> {!r} converted to {!r}'.format(name, new_name))
+        print('{!r} converted to {!r}'.format(name, new_name))
     return new_name
 
 
 def extract_group(group):
-    group, = group
+    # A kludge to work around not being able to operate on text nodes
+    # in Selenium
+    group = group._element.get_attribute('innerText').splitlines()[2]
     return group.replace('_', ' '), group.replace(' ', '_').lower()
 
 
 def extract_photo(photo):
-    photo, = photo
     photo, = parse_qs(urlparse(photo).query)['image']
     if 'INAT-dukke-lys.jpg' in photo:
         return None
     return urljoin(base_url, urlquote(photo))
 
 
-def scrape_rows(doc, term, chamber):
-    for row in doc.xpath(
+def scrape_rows(session, term, chamber):
+    for row in session.find_by_xpath(
             '//div[@id="cvtabbarmain"]/div[not(contains(@class, "ui-tabs-hide"))]'
             '//tr[starts-with(@id, "rowDetail")]/td/div[1]'):
-        yield (extract_name(row.xpath('./div/strong/text()')),
-               (row.xpath('.//a[starts-with(@href, "mailto")]/@href')[0]
-                   .replace('mailto:', '') or None),
-               extract_photo(row.xpath('./img/@src')),
+        yield (extract_name(row.find_by_xpath('./div/strong').first),
+               (row.find_by_xpath('.//a[starts-with(@href, "mailto")]')['href']
+                .replace('mailto:', '') or None),
+               extract_photo(row.find_by_xpath('./img')['src']),
                term,
-               *extract_group(row.xpath('./div/text()[2]')),
+               *extract_group(row.find_by_xpath('./div').first),
                chamber)
 
 
 def gather_people(session):
-    options = parse_html(session.find_by_id('valgdatoer').html)\
-        .xpath('//option/@value')
+    options = tuple(i['value'] for i in
+                    session.find_by_xpath('//*[@id = "valgdatoer"]/option'))
     options = sorted(set(options), key=options.index)
     options.remove('28-11-2014')   # Won't load
     for option in options:
@@ -88,12 +89,12 @@ def gather_people(session):
         while 'display: none' not in session.find_by_id('loader').outer_html:
             ...
         term, chamber = session_dates_to_terms[option], date_to_chamber(option)
-        yield from scrape_rows(parse_html(session.html), term, chamber)
+        yield from scrape_rows(session, term, chamber)
 
         on_leave = session.find_by_xpath('//a[text() = "Sulinngiffeqarpoq"]')
         if on_leave:
             on_leave.click()
-            yield from scrape_rows(parse_html(session.html), term, chamber)
+            yield from scrape_rows(session, term, chamber)
 
 
 def main():
