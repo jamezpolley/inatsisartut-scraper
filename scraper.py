@@ -116,7 +116,7 @@ def main():
         c.execute('''\
 CREATE TABLE IF NOT EXISTS data
 (name, email, image, term, 'group', group_id, start_date, end_date,
- UNIQUE (name, term, 'group'))''')
+ UNIQUE (name, term, 'group', start_date, end_date))''')
         c.executemany('''\
 INSERT OR REPLACE INTO data VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', people)
         c.execute('''\
