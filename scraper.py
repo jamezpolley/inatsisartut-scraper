@@ -1,6 +1,5 @@
 
 import datetime as dt
-from operator import itemgetter
 import re
 import sqlite3
 from urllib.parse import parse_qs, urljoin, urlparse, quote as urlquote
@@ -25,19 +24,20 @@ election_dates_to_terms = {
     '2013-03-12': '11',
     '2014-11-28': '12',}
 
-session_dates_to_terms = {'-'.join(k.split('-')[::-1]): v for k, v in {
+session_dates_to_terms = {
     **election_dates_to_terms,
     '1979-05-01': '1',
     '2015-11-03': '12',
-    '2016-05-23': '12',}.items()}
-
-term_end_dates = {s: e and (dt.datetime.strptime(e, '%Y-%m-%d').date() -
-                            dt.timedelta(days=1)).isoformat()
-                  for s, e in zip(sorted(election_dates_to_terms),
-                                  sorted(election_dates_to_terms)[1:] + [None])}
+    '2016-05-23': '12',}
 
 
-def date_to_chamber(date, _date_match=re.compile(r'\d{4}')):
+def date_to_prev_day(date):
+    if date:
+        return (dt.datetime.strptime(date, '%Y-%m-%d').date() -
+                dt.timedelta(days=1)).isoformat()
+
+
+def election_date_to_chamber(date, _date_match=re.compile(r'\d{4}')):
     # http://en.inatsisartut.gl/media/1595595/om_inatsisartut_vers_2014.01_en_web.pdf, p. 7
     year = int(_date_match.search(date).group())
     return 'Landsting' if year < 2009 else 'Inatsisartut'
@@ -66,35 +66,46 @@ def extract_photo(photo):
     return urljoin(base_url, urlquote(photo))
 
 
-def scrape_rows(session, term, chamber):
+t12_session_dates = sorted(k for k, v in session_dates_to_terms.items()
+                           if v == '12')
+t12_session_dates = [(p, date_to_prev_day(n))
+                     for p, n in zip(t12_session_dates, t12_session_dates[1:] +
+                                                        [None])]
+
+def extract_session_dates(term, option_date):
+    if term != '12':
+        return (None,) * 2
+    return next(filter(lambda i: i[0] == option_date, t12_session_dates))
+
+
+def scrape_rows(session, option_date):
     for row in session.find_by_xpath(
             '//div[@id="cvtabbarmain"]/div[not(contains(@class, "ui-tabs-hide"))]'
             '//tr[starts-with(@id, "rowDetail")]/td/div[1]'):
+        term = session_dates_to_terms[option_date]
         yield (extract_name(row.find_by_xpath('./div/strong').first),
                (row.find_by_xpath('.//a[starts-with(@href, "mailto")]')['href']
                 .replace('mailto:', '') or None),
                extract_photo(row.find_by_xpath('./img')['src']),
                term,
                *extract_group(row.find_by_xpath('./div').first),
-               chamber)
+               *extract_session_dates(term, option_date))
 
 
 def gather_people(session):
-    options = tuple(i['value'] for i in
-                    session.find_by_xpath('//*[@id = "valgdatoer"]/option'))
+    options = [i['value'] for i in session.find_by_xpath('//*[@id = "valgdatoer"]/option')]
     options = sorted(set(options), key=options.index)
     options.remove('28-11-2014')   # Won't load
-    for option in options:
+    for option, option_date in ((o, '-'.join(o.split('-')[::-1]))
+                                for o in options):
         session.find_option_by_value(option).click()
         while 'display: none' not in session.find_by_id('loader').outer_html:
             ...
-        term, chamber = session_dates_to_terms[option], date_to_chamber(option)
-        yield from scrape_rows(session, term, chamber)
-
+        yield from scrape_rows(session, option_date)
         on_leave = session.find_by_xpath('//a[text() = "Sulinngiffeqarpoq"]')
         if on_leave:
             on_leave.click()
-            yield from scrape_rows(session, term, chamber)
+            yield from scrape_rows(session, option_date)
 
 
 def main():
@@ -104,18 +115,21 @@ def main():
     with sqlite3.connect('data.sqlite') as c:
         c.execute('''\
 CREATE TABLE IF NOT EXISTS data
-(name, email, image, term, 'group', group_id, chamber,
+(name, email, image, term, 'group', group_id, start_date, end_date,
  UNIQUE (name, term, 'group'))''')
         c.executemany('''\
-INSERT OR REPLACE INTO data VALUES (?, ?, ?, ?, ?, ?, ?)''', people)
+INSERT OR REPLACE INTO data VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', people)
         c.execute('''\
 CREATE TABLE IF NOT EXISTS terms
 (id, name, start_date, end_date, UNIQUE (id))''')
         c.executemany('''\
 INSERT OR REPLACE INTO terms VALUES (?, ?, ?, ?)''',
-            ((v, date_to_chamber(k) + ' ' + v, k, term_end_dates[k])
-             for k, v in sorted(election_dates_to_terms.items(),
-                                key=itemgetter(1))))
+            ((election_dates_to_terms[s],
+              election_date_to_chamber(s) + ' ' + election_dates_to_terms[s],
+              s,
+              date_to_prev_day(e))
+             for s, e in zip(sorted(election_dates_to_terms),
+                             sorted(election_dates_to_terms)[1:] + [None])))
 
 if __name__ == '__main__':
     main()
