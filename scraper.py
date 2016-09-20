@@ -69,13 +69,13 @@ def extract_photo(photo):
 
 t12_session_dates = sorted(k for k, v in session_dates_to_terms.items()
                            if v == '12')
-t12_session_dates = [(p, date_to_prev_day(n))
+t12_session_dates = [(p, date_to_prev_day(n) or '')
                      for p, n in zip(t12_session_dates, t12_session_dates[1:] +
                                                         [None])]
 
 def extract_session_dates(term, option_date):
     if term != '12':
-        return (None,) * 2
+        return ('',) * 2
     return next(filter(lambda i: i[0] == option_date, t12_session_dates))
 
 
