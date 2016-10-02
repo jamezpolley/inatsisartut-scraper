@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urljoin, urlparse, quote as urlquote
 
 from splinter import Browser
 
-base_url = 'http://www.ina.gl/inatsisartuthome/sammensaetning-af-inatsisartut.aspx'
+base_url = 'http://www.ina.gl/inatsisartut/sammensaetning/'
 
 # http://www.ina.gl/media/28274/Valg%20til%20Inatsisartut%20DA%20WEB.pdf, pp. 31-33
 # http://lovgivning.gl/Lov?rid=%7b83F511C8-78BE-4B26-8277-291DFE01D57E%7d&sc_lang=da-DK
@@ -86,7 +86,7 @@ def scrape_rows(session, option_date):
         term = session_dates_to_terms[option_date]
         yield (extract_name(row.find_by_xpath('./div/strong').first),
                (row.find_by_xpath('.//a[starts-with(@href, "mailto")]')['href']
-                .replace('mailto:', '') or None),
+                   .replace('mailto:', '') or None),
                extract_photo(row.find_by_xpath('./img')['src']),
                term,
                *extract_group(row.find_by_xpath('./div').first),
@@ -96,7 +96,6 @@ def scrape_rows(session, option_date):
 def gather_people(session):
     options = [i['value'] for i in session.find_by_xpath('//*[@id = "valgdatoer"]/option')]
     options = sorted(set(options), key=options.index)
-    options.remove('28-11-2014')   # Won't load
     for option, option_date in ((o, '-'.join(o.split('-')[::-1]))
                                 for o in options):
         session.find_option_by_value(option).click()
