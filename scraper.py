@@ -4,6 +4,7 @@ import re
 import sqlite3
 from urllib.parse import parse_qs, urljoin, urlparse, quote as urlquote
 
+from selenium.common.exceptions import WebDriverException
 from splinter import Browser
 
 base_url = 'http://www.ina.gl/inatsisartut/sammensaetning-af-inatsisartut/'
@@ -104,7 +105,10 @@ def gather_people(session):
         yield from scrape_rows(session, option_date)
         on_leave = session.find_by_xpath('//a[text() = "Sulinngiffeqarpoq"]')
         if on_leave:
-            on_leave.click()
+            try:
+                on_leave.click()
+            except WebDriverException:
+                pass
             yield from scrape_rows(session, option_date)
 
 
