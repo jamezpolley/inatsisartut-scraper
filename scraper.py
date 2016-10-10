@@ -141,11 +141,11 @@ CREATE TABLE IF NOT EXISTS data
  UNIQUE (name, term, 'group', start_date, end_date))''')
         c.executemany('''\
 INSERT OR REPLACE INTO data VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-            it.chain((i for i in people if i[3] != '12'),
-                     (i
-                      for _, v in it.groupby(sorted(i for i in people if i[3] == '12'),
-                                             key=lambda i: i[0])
-                      for i in merge_date_adjacent_appointments(list(v)))))
+            it.chain((i
+                      for _, v in it.groupby(sorted({i for i in people if i.term == '12'}),
+                                             key=lambda i: (i.name, i.group))
+                      for i in merge_date_adjacent_appointments(list(v))),
+                     (i for i in people if i.term != '12')))
         c.execute('''\
 CREATE TABLE IF NOT EXISTS terms
 (id, name, start_date, end_date, UNIQUE (id))''')
