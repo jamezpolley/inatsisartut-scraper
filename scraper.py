@@ -1,5 +1,7 @@
 
+from collections import namedtuple
 import datetime as dt
+import itertools as it
 import re
 import sqlite3
 from urllib.parse import parse_qs, urljoin, urlparse, quote as urlquote
@@ -25,7 +27,7 @@ election_dates_to_terms = {
     '2013-03-12': '11',
     '2014-11-28': '12',}
 
-session_dates_to_terms = {
+appointment_dates_to_terms = {
     **election_dates_to_terms,
     '1979-05-01': '1',
     '2015-11-03': '12',
@@ -33,16 +35,10 @@ session_dates_to_terms = {
     '2016-09-16': '12',}
 
 
-def date_to_prev_day(date):
+def shift_date(date, **delta_kwargs):
     if date:
-        return (dt.datetime.strptime(date, '%Y-%m-%d').date() -
-                dt.timedelta(days=1)).isoformat()
-
-
-def election_date_to_chamber(date, _date_match=re.compile(r'\d{4}')):
-    # http://en.inatsisartut.gl/media/1595595/om_inatsisartut_vers_2014.01_en_web.pdf, p. 7
-    year = int(_date_match.search(date).group())
-    return 'Landsting' if year < 2009 else 'Inatsisartut'
+        return (dt.datetime.strptime(date, '%Y-%m-%d').date() +
+                dt.timedelta(**delta_kwargs)).isoformat()
 
 
 def extract_name(name):
@@ -51,7 +47,7 @@ def extract_name(name):
     new_name, *_ = name.partition(',')
     if name != new_name:
         print('{!r} converted to {!r}'.format(name, new_name))
-    return new_name
+    return ' '.join(new_name.split())
 
 
 def extract_group(group):
@@ -68,30 +64,33 @@ def extract_photo(photo):
     return urljoin(base_url, urlquote(photo))
 
 
-t12_session_dates = sorted(k for k, v in session_dates_to_terms.items()
-                           if v == '12')
-t12_session_dates = [(p, date_to_prev_day(n) or '')
-                     for p, n in zip(t12_session_dates, t12_session_dates[1:] +
-                                                        [None])]
+t12_appointment_dates = sorted(k for k, v in appointment_dates_to_terms.items()
+                               if v == '12')
+t12_appointment_dates = [(p, shift_date(n, days=-1) or '')
+                         for p, n in zip(t12_appointment_dates,
+                                         t12_appointment_dates[1:] + [None])]
 
-def extract_session_dates(term, option_date):
+def extract_appointment_dates(term, option_date):
     if term != '12':
         return ('',) * 2
-    return next(filter(lambda i: i[0] == option_date, t12_session_dates))
+    return next(filter(lambda i: i[0] == option_date, t12_appointment_dates))
 
+
+_Row = namedtuple('Person', 'name, email, image, term, group, group_id, '
+                            'start_date, end_date')
 
 def scrape_rows(session, option_date):
+    term = appointment_dates_to_terms[option_date]
     for row in session.find_by_xpath(
             '//div[@id="cvtabbarmain"]/div[not(contains(@class, "ui-tabs-hide"))]'
             '//tr[starts-with(@id, "rowDetail")]/td/div[1]'):
-        term = session_dates_to_terms[option_date]
-        yield (extract_name(row.find_by_xpath('./div/strong').first),
-               (row.find_by_xpath('.//a[starts-with(@href, "mailto")]')['href']
-                   .replace('mailto:', '') or None),
-               extract_photo(row.find_by_xpath('./img')['src']),
-               term,
-               *extract_group(row.find_by_xpath('./div').first),
-               *extract_session_dates(term, option_date))
+        yield _Row(extract_name(row.find_by_xpath('./div/strong').first),
+                   (row.find_by_xpath('.//a[starts-with(@href, "mailto")]')['href']
+                       .replace('mailto:', '') or None),
+                   extract_photo(row.find_by_xpath('./img')['src']),
+                   term,
+                   *extract_group(row.find_by_xpath('./div').first),
+                   *extract_appointment_dates(term, option_date))
 
 
 def gather_people(session):
@@ -112,26 +111,52 @@ def gather_people(session):
             yield from scrape_rows(session, option_date)
 
 
+def is_date_adjacent(appointment_triplet):
+    a, b, c = appointment_triplet
+    return (shift_date(a.end_date, days=1) == b.start_date if a else
+            shift_date(c.start_date, days=-1) == b.end_date if c else
+            False)
+
+
+def merge_date_adjacent_appointments(appointments):
+    groups = ((k, [b for _, b, _ in v])
+              for k, v in it.groupby(zip([None] + appointments, appointments,
+                                         appointments[1:] + [None]),
+                                     key=is_date_adjacent))
+    for is_range, rows in groups:
+        if is_range:
+            yield (*rows[0][:-1], rows[-1][-1])
+        else:
+            yield from iter(rows)
+
+
 def main():
     with Browser('phantomjs', load_images=False) as browser:
         browser.visit(base_url)
-        people = tuple(gather_people(browser))
+        people = list(gather_people(browser))
     with sqlite3.connect('data.sqlite') as c:
         c.execute('''\
 CREATE TABLE IF NOT EXISTS data
 (name, email, image, term, 'group', group_id, start_date, end_date,
  UNIQUE (name, term, 'group', start_date, end_date))''')
         c.executemany('''\
-INSERT OR REPLACE INTO data VALUES (?, ?, ?, ?, ?, ?, ?, ?)''', people)
+INSERT OR REPLACE INTO data VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+            it.chain((i for i in people if i[3] != '12'),
+                     (i
+                      for _, v in it.groupby(sorted(i for i in people if i[3] == '12'),
+                                             key=lambda i: i[0])
+                      for i in merge_date_adjacent_appointments(list(v)))))
         c.execute('''\
 CREATE TABLE IF NOT EXISTS terms
 (id, name, start_date, end_date, UNIQUE (id))''')
         c.executemany('''\
 INSERT OR REPLACE INTO terms VALUES (?, ?, ?, ?)''',
             ((election_dates_to_terms[s],
-              election_date_to_chamber(s) + ' ' + election_dates_to_terms[s],
+              # http://en.inatsisartut.gl/media/1595595/om_inatsisartut_vers_2014.01_en_web.pdf, p. 7
+              ('Landsting' if int(s[:4]) < 2009 else 'Inatsisartut' + ' ' +
+               election_dates_to_terms[s]),
               s,
-              date_to_prev_day(e))
+              shift_date(e, days=-1))
              for s, e in zip(sorted(election_dates_to_terms),
                              sorted(election_dates_to_terms)[1:] + [None])))
 
