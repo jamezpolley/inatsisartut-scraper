@@ -1,2 +1,2 @@
-selenium==3.0.1
-splinter==0.7.4
+selenium==3.4.2
+splinter==0.7.5
