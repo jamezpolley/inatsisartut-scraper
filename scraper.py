@@ -1,6 +1,7 @@
 
 from collections import namedtuple
 import datetime as dt
+from functools import reduce
 import itertools as it
 import re
 import sqlite3
@@ -27,7 +28,7 @@ election_dates_to_terms = {
     '2013-03-12': '11',
     '2014-11-28': '12',}
 
-appointment_dates_to_terms = {
+appt_dates_to_terms = {
     **election_dates_to_terms,
     '1979-05-01': '1',
     '2015-11-03': '12',
@@ -68,23 +69,22 @@ def extract_photo(photo):
     return urljoin(base_url, urlquote(photo))
 
 
-t12_appointment_dates = sorted(k for k, v in appointment_dates_to_terms.items()
-                               if v == '12')
-t12_appointment_dates = [(p, shift_date(n, days=-1) or '')
-                         for p, n in zip(t12_appointment_dates,
-                                         t12_appointment_dates[1:] + [None])]
+t12_appt_dates = sorted(k for k, v in appt_dates_to_terms.items() if v == '12')
+t12_appt_dates = [(p, shift_date(n, days=-1) or '')
+                  for p, n in zip(t12_appt_dates,
+                                  t12_appt_dates[1:] + [None])]
 
-def extract_appointment_dates(term, option_date):
+def extract_appt_dates(term, option_date):
     if term != '12':
-        return ('',) * 2
-    return next(filter(lambda i: i[0] == option_date, t12_appointment_dates))
+        return ('', '')
+    return next(filter(lambda i: i[0] == option_date, t12_appt_dates))
 
 
 _Row = namedtuple('Person', 'name, email, image, term, group, group_id, '
                             'start_date, end_date')
 
 def scrape_rows(session, option_date):
-    term = appointment_dates_to_terms[option_date]
+    term = appt_dates_to_terms[option_date]
     for row in session.find_by_xpath(
             '//div[@id="cvtabbarmain"]/div[not(contains(@class, "ui-tabs-hide"))]'
             '//tr[starts-with(@id, "rowDetail")]/td/div[1]'):
@@ -94,7 +94,7 @@ def scrape_rows(session, option_date):
                    extract_photo(row.find_by_xpath('./img')['src']),
                    term,
                    *extract_group(row.find_by_xpath('./div').first),
-                   *extract_appointment_dates(term, option_date))
+                   *extract_appt_dates(term, option_date))
 
 
 def gather_people(session):
@@ -115,23 +115,23 @@ def gather_people(session):
             yield from scrape_rows(session, option_date)
 
 
-def is_date_adjacent(appointment_triplet):
-    a, b, c = appointment_triplet
-    return (shift_date(a.end_date, days=1) == b.start_date if a else
-            shift_date(c.start_date, days=-1) == b.end_date if c else
-            False)
+def transform_groups(seq, val):
+    a, b = val
+    if not a or shift_date(a.end_date, days=1) == b.start_date:
+        return [*seq[:-1], seq[-1] + [val[1]]]
+    else:
+        return seq + [[val[1]]]
 
 
-def merge_date_adjacent_appointments(appointments):
-    groups = ((k, [b for _, b, _ in v])
-              for k, v in it.groupby(zip([None] + appointments, appointments,
-                                         appointments[1:] + [None]),
-                                     key=is_date_adjacent))
-    for is_range, rows in groups:
-        if is_range:
+def merge_date_adjacent_appts(appts):
+    groups = reduce(transform_groups,
+                    zip([None] + appts, appts),
+                    [[]])
+    for rows in groups:
+        if len(rows) > 1:
             yield (*rows[0][:-1], rows[-1][-1])
         else:
-            yield from iter(rows)
+            yield rows[0]
 
 
 def main():
@@ -148,7 +148,7 @@ INSERT OR REPLACE INTO data VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
             it.chain((i
                       for _, v in it.groupby(sorted({i for i in people if i.term == '12'}),
                                              key=lambda i: (i.name, i.group))
-                      for i in merge_date_adjacent_appointments(list(v))),
+                      for i in merge_date_adjacent_appts(list(v))),
                      (i for i in people if i.term != '12')))
         c.execute('''\
 CREATE TABLE IF NOT EXISTS terms
