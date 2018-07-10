@@ -26,7 +26,8 @@ election_dates_to_terms = {
     '2005-11-15': '9',
     '2009-06-02': '10',
     '2013-03-12': '11',
-    '2014-11-28': '12',}
+    '2014-11-28': '12',
+    '2018-04-24': '13',}
 
 appt_dates_to_terms = {
     **election_dates_to_terms,
@@ -39,7 +40,10 @@ appt_dates_to_terms = {
     '2017-02-23': '12',
     '2017-04-24': '12',
     '2017-09-20': '12',
-    '2017-09-22': '12',}
+    '2017-09-22': '12',
+    '2017-10-09': '12',
+    '2018-01-11': '12',
+    '2018-05-15': '13',}
 
 
 def shift_date(date, **delta_kwargs):
@@ -53,7 +57,7 @@ def extract_name(name):
     name = name._element.get_attribute('textContent')
     new_name, *_ = name.partition(',')
     if name != new_name:
-        print('{!r} converted to {!r}'.format(name, new_name))
+        print(f'{name!r} converted to {new_name!r}')
     return ' '.join(new_name.split())
 
 
