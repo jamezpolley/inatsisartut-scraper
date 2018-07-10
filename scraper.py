@@ -142,7 +142,8 @@ def merge_date_adjacent_appts(appts):
 
 
 def main():
-    with Browser('chrome', headless=True) as browser:
+    with Browser('chrome', headless=True, desired_capabilities={'acceptInsecureCerts': True}) \
+            as browser:
         browser.visit(base_url)
         people = list(gather_people(browser))
     with sqlite3.connect('data.sqlite') as c:
