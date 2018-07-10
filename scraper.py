@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urljoin, urlparse, quote as urlquote
 from selenium.common.exceptions import WebDriverException
 from splinter import Browser
 
-base_url = 'http://www.ina.gl/inatsisartut/sammensaetning-af-inatsisartut/'
+base_url = 'https://ina.gl/inatsisartut/sammensaetning-af-inatsisartut/'
 
 # http://www.ina.gl/media/28274/Valg%20til%20Inatsisartut%20DA%20WEB.pdf, pp. 31-33
 # http://lovgivning.gl/Lov?rid=%7b83F511C8-78BE-4B26-8277-291DFE01D57E%7d&sc_lang=da-DK
