@@ -104,6 +104,7 @@ def scrape_rows(session, option_date):
 
 
 def gather_people(session):
+    print(session.html)
     options = [i['value'] for i in session.find_by_xpath('//*[@id = "valgdatoer"]/option')]
     options = sorted(set(options), key=options.index)
     for option, option_date in ((o, '-'.join(o.split('-')[::-1]))
