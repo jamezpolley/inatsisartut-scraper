@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urljoin, urlparse, quote as urlquote
 from selenium.common.exceptions import WebDriverException
 from splinter import Browser
 
-base_url = 'https://ina.gl/inatsisartut/sammensaetning-af-inatsisartut/'
+base_url = 'https://ina.gl/organisation/sammensaetning-af-inatsisartut/'
 
 # http://www.ina.gl/media/28274/Valg%20til%20Inatsisartut%20DA%20WEB.pdf, pp. 31-33
 # http://lovgivning.gl/Lov?rid=%7b83F511C8-78BE-4B26-8277-291DFE01D57E%7d&sc_lang=da-DK
@@ -43,7 +43,8 @@ appt_dates_to_terms = {
     '2017-09-22': '12',
     '2017-10-09': '12',
     '2018-01-11': '12',
-    '2018-05-15': '13',}
+    '2018-05-15': '13',
+    '2018-10-03': '13',}
 
 
 def shift_date(date, **delta_kwargs):
@@ -104,7 +105,6 @@ def scrape_rows(session, option_date):
 
 
 def gather_people(session):
-    print(session.html)
     options = [i['value'] for i in session.find_by_xpath('//*[@id = "valgdatoer"]/option')]
     options = sorted(set(options), key=options.index)
     for option, option_date in ((o, '-'.join(o.split('-')[::-1]))
@@ -142,8 +142,7 @@ def merge_date_adjacent_appts(appts):
 
 
 def main():
-    with Browser('chrome', headless=True, desired_capabilities={'acceptInsecureCerts': True}) \
-            as browser:
+    with Browser('phantomjs', load_images=False) as browser:
         browser.visit(base_url)
         people = list(gather_people(browser))
     with sqlite3.connect('data.sqlite') as c:
