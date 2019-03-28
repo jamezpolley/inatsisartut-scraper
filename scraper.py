@@ -28,7 +28,8 @@ session_dates_to_terms = {
     **election_dates_to_terms,
     '1979-05-01': '1',
     '2015-11-03': '12',
-    '2016-05-23': '12',}
+    '2016-05-23': '12',
+    '2016-09-16': '12',}
 
 
 def date_to_prev_day(date):
